@@ -156,7 +156,10 @@ module.exports = async () => {
       company: WIKI.config.company,
       contentLicense: WIKI.config.contentLicense,
       footerOverride: WIKI.config.footerOverride,
-      logoUrl: WIKI.config.logoUrl
+      logoUrl: WIKI.config.logoUrl,
+      // Tofu (2026-10-25): modified by Tofu for its app gallery: the address every page's Source code link opens
+      // (client/components/common/tofu-source-link.vue), which the AGPL offers to everyone who uses this copy.
+      sourceUrl: process.env.SOURCE_URL || 'https://github.com/tofu-gallery/wiki-v2/tree/tofu'
     }
     res.locals.langs = await WIKI.models.locales.getNavLocales({ cache: true })
     res.locals.analyticsCode = await WIKI.models.analytics.getCode({ cache: true })

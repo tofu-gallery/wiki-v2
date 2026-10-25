@@ -7,11 +7,15 @@
         span(v-if='contentLicense === `alr`') {{ $t('common:footer.copyright', { company: company, year: currentYear, interpolation: { escapeValue: false } }) }} |&nbsp;
         span(v-else) {{ $t('common:footer.license', { company: company, license: $t('common:license.' + contentLicense), interpolation: { escapeValue: false } }) }} |&nbsp;
       span {{ $t('common:footer.poweredBy') }} #[a(href='https://wiki.js.org', ref='nofollow') Wiki.js]
+      //- Tofu (2026-10-25): modified by Tofu for its app gallery: this copy's own source (AGPL).
+      span &nbsp;|&nbsp;
+      tofu-source-link
 </template>
 
 <script>
 import { get } from 'vuex-pathify'
 import MarkdownIt from 'markdown-it'
+import TofuSourceLink from '../../../components/common/tofu-source-link.vue'
 
 const md = new MarkdownIt({
   html: false,
@@ -20,6 +24,9 @@ const md = new MarkdownIt({
 })
 
 export default {
+  components: {
+    TofuSourceLink
+  },
   props: {
     color: {
       type: String,

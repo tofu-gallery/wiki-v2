@@ -178,6 +178,9 @@
               @click='changePassword'
               :loading='isLoading'
               ) {{ $t('auth:changePwd.proceed') }}
+        //- Tofu (2026-10-25): modified by Tofu for its app gallery: this copy's own source (AGPL).
+        .caption.text-center.grey--text.text--darken-2.mt-5
+          tofu-source-link
 
     //-------------------------------------------------
     //- TFA FORM
@@ -256,9 +259,13 @@ import _ from 'lodash'
 import Cookies from 'js-cookie'
 import gql from 'graphql-tag'
 import { sync } from 'vuex-pathify'
+import TofuSourceLink from './common/tofu-source-link.vue'
 
 export default {
   i18nOptions: { namespaces: 'auth' },
+  components: {
+    TofuSourceLink
+  },
   props: {
     bgUrl: {
       type: String,

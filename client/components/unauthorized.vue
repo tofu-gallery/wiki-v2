@@ -11,11 +11,18 @@
         v-btn.mt-5(color='red lighten-4', href='javascript:window.history.go(-1);', outlined)
           v-icon(left) mdi-arrow-left
           span {{$t('unauthorized.goback')}}
+        //- Tofu (2026-10-25): modified by Tofu for its app gallery: this copy's own source (AGPL).
+        .caption.mt-8
+          tofu-source-link
 </template>
 
 <script>
+import TofuSourceLink from './common/tofu-source-link.vue'
 
 export default {
+  components: {
+    TofuSourceLink
+  },
   props: {
     action: {
       type: String,
