@@ -45,9 +45,9 @@ defaults:
     company: ''
     contentLicense: ''
     footerOverride: ''
-    # Tofu (2026-10-25): modified by Tofu for its app gallery: the default logo is the wiki's own copy, so no page
-    # loads it from upstream's static.requarks.io.
-    logoUrl: /_assets/svg/logo-wikijs.svg
+    # Tofu (2026-10-25): modified by Tofu for its app gallery: the default logo is the wiki's own copy of the same
+    # butterfly (its 256-pixel icon), so no page loads it from upstream's static.requarks.io.
+    logoUrl: /_assets/favicons/android-chrome-256x256.png
     pageExtensions:
       - md
       - html
