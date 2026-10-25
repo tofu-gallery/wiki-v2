@@ -7,10 +7,13 @@ const router = express.Router()
 const _ = require('lodash')
 const commonHelper = require('../helpers/common')
 
-const bruteforce = new ExpressBrute(new BruteKnex({
+// Tofu (2026-10-25): modified by Tofu for its app gallery: the lockout's store is named, so that server/master.js can
+// wait for the table it makes (brute) and close it to Supabase's Data API (server/db/tofu-data-api.js).
+const bruteStore = new BruteKnex({
   createTable: true,
   knex: WIKI.models.knex
-}), {
+})
+const bruteforce = new ExpressBrute(bruteStore, {
   freeRetries: 5,
   minWait: 5 * 60 * 1000, // 5 minutes
   maxWait: 60 * 60 * 1000, // 1 hour
@@ -199,3 +202,5 @@ router.get('/.well-known/jwk.pem', function (req, res, next) {
 })
 
 module.exports = router
+// Tofu (2026-10-25): modified by Tofu for its app gallery: settles once the lockout's table exists (see bruteStore).
+module.exports.bruteStoreReady = bruteStore.ready

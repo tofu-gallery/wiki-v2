@@ -76,14 +76,18 @@ module.exports = async () => {
   // Passport Authentication
   // ----------------------------------------
 
+  // Tofu (2026-10-25): modified by Tofu for its app gallery: the store is named, so that the table it makes (sessions)
+  // can be closed to Supabase's Data API before the server listens (below, at "Start HTTP Server(s)").
+  const sessionStore = new KnexSessionStore({
+    knex: WIKI.models.knex
+  })
+
   app.use(cookieParser())
   app.use(session({
     secret: WIKI.config.sessionSecret,
     resave: false,
     saveUninitialized: false,
-    store: new KnexSessionStore({
-      knex: WIKI.models.knex
-    })
+    store: sessionStore
   }))
   app.use(WIKI.auth.passport.initialize())
   app.use(WIKI.auth.authenticate)
@@ -202,6 +206,12 @@ module.exports = async () => {
   // ----------------------------------------
   // Start HTTP Server(s)
   // ----------------------------------------
+
+  // Tofu (2026-10-25): modified by Tofu for its app gallery: the session store and the sign-in lockout
+  // (server/controllers/auth.js) make their tables, sessions and brute, as the server starts: after the database's
+  // start-up closed Wiki.js's other tables to Supabase's Data API, and, on a new wiki, in the same process as its setup.
+  // Wait for both tables, then close them too, before the server listens (server/db/tofu-data-api.js).
+  await require('./db/tofu-data-api').whenMade(WIKI.models.knex, ['sessions', 'brute'], [sessionStore.ready, ctrl.auth.bruteStoreReady])
 
   await WIKI.servers.startHTTP()
 
