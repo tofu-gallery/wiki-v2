@@ -6,10 +6,45 @@ const Knex = require('knex')
 const fs = require('fs')
 const Objection = require('objection')
 
+// Tofu (2026-10-25): modified by Tofu for its app gallery: a DATABASE_URL's sslmode keeps libpq's meaning
+// (tofuDatabaseUrl), and Wiki.js's tables are closed to Supabase's Data API after its migrations (closeToDataApi).
+
 const migrationSource = require('../db/migrator-source')
 const migrateFromBeta = require('../db/beta')
+const closeToDataApi = require('../db/tofu-data-api')
 
 /* global WIKI */
+
+/**
+ * Tofu (2026-10-25): node-postgres lets a URL's `sslmode` override its own `ssl` option, and treats `require` as full
+ * certificate verification, which fails against a managed database's pooler (SELF_SIGNED_CERT_IN_CHAIN). When the URL
+ * names an `sslmode`, it is taken out and TLS is set here, as libpq means it: `disable` is off, `verify-ca` and
+ * `verify-full` verify the server's certificate, and every other mode encrypts without verifying it. DB_SSL_CA, when
+ * set, still verifies against that certificate (below). Host, port, user, password, database and any other parameter
+ * stay in the URL, which pg parses itself; a URL without `sslmode` reaches pg as it did upstream.
+ */
+function tofuDatabaseUrl (databaseUrl) {
+  let url
+  try {
+    url = new URL(databaseUrl)
+  } catch (err) {
+    return databaseUrl
+  }
+  const sslmode = url.searchParams.get('sslmode')
+  if (!sslmode) {
+    return databaseUrl
+  }
+  url.searchParams.delete('sslmode')
+  let ssl
+  if (sslmode === 'disable') {
+    ssl = false
+  } else if (sslmode === 'verify-ca' || sslmode === 'verify-full') {
+    ssl = { rejectUnauthorized: true }
+  } else {
+    ssl = { rejectUnauthorized: false }
+  }
+  return { connectionString: url.toString(), ssl }
+}
 
 /**
  * ORM DB module
@@ -35,6 +70,11 @@ module.exports = {
       password: WIKI.config.db.pass.toString(),
       database: WIKI.config.db.db.toString(),
       port: WIKI.config.db.port
+    }
+
+    // Tofu (2026-10-25): sslmode as libpq means it (tofuDatabaseUrl, above).
+    if (_.isString(dbConfig) && WIKI.config.db.type === 'postgres') {
+      dbConfig = tofuDatabaseUrl(dbConfig)
     }
 
     // Handle SSL Options
@@ -204,13 +244,18 @@ module.exports = {
       // -> Migrate DB Schemas from beta
       async migrateFromBeta () {
         return migrateFromBeta.migrate(self.knex)
+      },
+      // -> Tofu (2026-10-25): row-level security on Wiki.js's own tables for Supabase's Data API
+      async closeToDataApi () {
+        return closeToDataApi(self.knex)
       }
     }
 
     let initTasksQueue = (WIKI.IS_MASTER) ? [
       initTasks.connect,
       initTasks.migrateFromBeta,
-      initTasks.syncSchemas
+      initTasks.syncSchemas,
+      initTasks.closeToDataApi
     ] : [
       () => { return Promise.resolve() }
     ]

@@ -50,6 +50,10 @@ module.exports = {
       await WIKI.models.knex.raw(`CREATE INDEX "pageWords_idx" ON "pagesWords" USING GIN (word gin_trgm_ops)`)
     }
 
+    // Tofu (2026-10-25): modified by Tofu for its app gallery: the two index tables get row-level security on
+    // Supabase as soon as they exist, as Wiki.js's other tables do at start (server/db/tofu-data-api.js).
+    await require('../../../db/tofu-data-api')(WIKI.models.knex)
+
     WIKI.logger.info(`(SEARCH/POSTGRES) Initialization completed.`)
   },
   /**
