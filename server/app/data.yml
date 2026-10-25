@@ -45,7 +45,9 @@ defaults:
     company: ''
     contentLicense: ''
     footerOverride: ''
-    logoUrl: https://static.requarks.io/logo/wikijs-butterfly.svg
+    # Tofu (2026-10-25): modified by Tofu for its app gallery: the default logo is the wiki's own copy, so no page
+    # loads it from upstream's static.requarks.io.
+    logoUrl: /_assets/svg/logo-wikijs.svg
     pageExtensions:
       - md
       - html
