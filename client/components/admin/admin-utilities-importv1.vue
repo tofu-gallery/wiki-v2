@@ -60,15 +60,10 @@
                 outlined
                 hide-details
               )
-            v-col(v-if='gitAuthMode === `ssh`', cols='12')
-              v-textarea(
-                outlined
-                label='Private Key Contents'
-                placeholder='-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----'
-                hide-details
-                v-model='gitPrivKey'
-              )
-            template(v-else-if='gitAuthMode === `basic`')
+            //- Tofu (2026-10-25): modified by Tofu for its app gallery: this 1.x import connects to its Git repository
+            //- with a username and password only. Its SSH mode, whose field took the contents of an SSH key, is gone:
+            //- Tofu's safety check refuses a page that asks for one. The Git storage module keeps its own SSH mode.
+            template(v-if='gitAuthMode === `basic`')
               v-col(cols='6')
                 v-text-field(
                   label='Username'
@@ -289,9 +284,9 @@ export default {
       contentPath: '/wiki-v1/repo',
       isLoading: false,
       isSuccess: false,
-      gitAuthMode: 'ssh',
+      // Tofu (2026-10-25): username and password only (above).
+      gitAuthMode: 'basic',
       gitAuthModes: [
-        { text: 'SSH', value: 'ssh' },
         { text: 'Basic', value: 'basic' }
       ],
       gitVerifySSL: true,
