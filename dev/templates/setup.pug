@@ -44,5 +44,7 @@ html
     <% } %>
 
   body
+    //- Tofu (2026-10-25): modified by Tofu for its app gallery: whether the setup waits for its owner's
+    //- ADMIN_PASSWORD, and this copy's own source (server/setup.js).
     #root
-      setup(telemetry-id=telemetryClientID, wiki-version=packageObj.version)
+      setup(telemetry-id=telemetryClientID, wiki-version=packageObj.version, lock=setupLock, source-url=sourceUrl)

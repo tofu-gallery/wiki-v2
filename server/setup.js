@@ -13,6 +13,9 @@ const semver = require('semver')
 
 const randomBytesAsync = require('util').promisify(crypto.randomBytes)
 
+// Tofu (2026-10-25): modified by Tofu for its app gallery: the setup only finishes with its owner's ADMIN_PASSWORD,
+// telemetry stays off, and the page links this copy's own source.
+
 /* global WIKI */
 
 module.exports = () => {
@@ -22,6 +25,49 @@ module.exports = () => {
   }
 
   WIKI.system = require('./core/system')
+
+  // ----------------------------------------
+  // Tofu (2026-10-25): the setup only finishes for the wiki's owner
+  // ----------------------------------------
+  // On Tofu a new copy is online before its owner first opens it, and upstream's setup makes whoever finishes it first
+  // the administrator. Here it only finishes with the password the owner saved as the hidden value ADMIN_PASSWORD,
+  // which becomes the administrator's password. Without one, or with one shorter than 8 characters, the page only says
+  // what the owner has to do. Ten wrong passwords in a row close the setup for 15 minutes.
+
+  const ownerPassword = process.env.ADMIN_PASSWORD || ''
+  const setupLock = ownerPassword.length === 0 ? 'missing' : (ownerPassword.length < 8 ? 'short' : '')
+  const sourceUrl = process.env.SOURCE_URL || 'https://github.com/tofu-gallery/wiki-v2/tree/tofu'
+  const guard = { failures: 0, closedUntil: 0 }
+  const sha256 = value => crypto.createHash('sha256').update(value, 'utf8').digest()
+
+  async function ownerRefusal (body) {
+    if (setupLock === 'missing') {
+      return 'This wiki is waiting for its owner. To finish setting it up, its owner saves a password as ADMIN_PASSWORD on the app’s Keys & settings page in Tofu, with Hide this value after saving on, and deploys the app again.'
+    }
+    if (setupLock === 'short') {
+      return 'ADMIN_PASSWORD has to be at least 8 characters long. The owner saves a longer one on the app’s Keys & settings page in Tofu and deploys the app again.'
+    }
+    if (Date.now() < guard.closedUntil) {
+      return 'Too many wrong passwords. Try again in 15 minutes.'
+    }
+    const given = _.get(body, 'adminPassword')
+    if (_.isString(given) && crypto.timingSafeEqual(sha256(given), sha256(ownerPassword))) {
+      guard.failures = 0
+      return null
+    }
+    guard.failures++
+    if (guard.failures >= 10) {
+      guard.failures = 0
+      guard.closedUntil = Date.now() + 15 * 60 * 1000
+    }
+    WIKI.logger.warn('Setup refused: the password given is not this wiki’s ADMIN_PASSWORD.')
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    return 'That is not the password saved as ADMIN_PASSWORD for this wiki. Use the one its owner saved on the app’s Keys & settings page in Tofu.'
+  }
+
+  if (setupLock) {
+    WIKI.logger.warn('Setup waits for ADMIN_PASSWORD: the owner saves it as a hidden value of at least 8 characters, then deploys again.')
+  }
 
   // ----------------------------------------
   // Define Express App
@@ -67,13 +113,19 @@ module.exports = () => {
 
   app.get('*', async (req, res) => {
     let packageObj = await fs.readJson(path.join(WIKI.ROOTPATH, 'package.json'))
-    res.render('setup', { packageObj })
+    // Tofu (2026-10-25): whether the setup waits for ADMIN_PASSWORD, and this copy's source (above).
+    res.render('setup', { packageObj, setupLock, sourceUrl })
   })
 
   /**
    * Finalize
    */
   app.post('/finalize', async (req, res) => {
+    // Tofu (2026-10-25): only with the owner's ADMIN_PASSWORD (above).
+    const refusal = await ownerRefusal(req.body)
+    if (refusal) {
+      return res.status(403).json({ ok: false, error: refusal })
+    }
     try {
       // Set config
       _.set(WIKI.config, 'auth', {
@@ -121,8 +173,9 @@ module.exports = () => {
         analyticsId: ''
       })
       _.set(WIKI.config, 'sessionSecret', (await randomBytesAsync(32)).toString('hex'))
+      // Tofu (2026-10-25): telemetry stays off; the setup page no longer asks.
       _.set(WIKI.config, 'telemetry', {
-        isEnabled: req.body.telemetry === true,
+        isEnabled: false,
         clientId: uuid()
       })
       _.set(WIKI.config, 'theming', {

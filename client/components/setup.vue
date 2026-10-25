@@ -11,11 +11,21 @@
                 .body-2 Read the #[a(href='https://docs.requarks.io/install', style='color: #FFF;') documentation] on correctly installing the latest stable version.
               .text-center
                 img.setup-logo.animated.fadeInUp.wait-p2s(src='/_assets/svg/logo-wikijs-full.svg', alt='Wiki.js Logo')
+              //- Tofu (2026-10-25): until its owner saves ADMIN_PASSWORD, the setup only says what they have to do.
+              template(v-if='lock')
+                v-alert(tile, color='blue lighten-5', :value='true')
+                  v-icon.mr-3(color='blue') mdi-lock-outline
+                  span.blue--text(v-if='lock === `short`') ADMIN_PASSWORD has to be at least 8 characters long.
+                  span.blue--text(v-else) This wiki is waiting for its owner.
+                v-card-text.body-1
+                  p(v-if='lock === `short`') The owner saves a longer password as #[strong ADMIN_PASSWORD] on the app’s Keys &amp; settings page in Tofu, then deploys the app again.
+                  p(v-else) To finish setting it up, its owner saves a password as #[strong ADMIN_PASSWORD] on the app’s Keys &amp; settings page in Tofu, with #[em Hide this value after saving] on, then deploys the app again.
+                  p.mb-0 Then the owner opens this page again and makes the administrator account with that password. Nobody else can.
               v-alert(v-model='error', type='error', icon='mdi-alert', tile, dismissible) {{ errorMessage }}
-              v-alert(v-if='!error', tile, color='blue lighten-5', :value='true')
+              v-alert(v-if='!error && !lock', tile, color='blue lighten-5', :value='true')
                 v-icon.mr-3(color='blue') mdi-package-variant
                 span.blue--text You are about to install Wiki.js #[strong {{wikiVersion}}].
-              v-card-text
+              v-card-text(v-if='!lock')
                 .overline.pl-3 Administrator Account
                 v-container.pa-3.mt-3(grid-list-xl)
                   v-layout(row, wrap)
@@ -39,7 +49,7 @@
                         :append-icon="pwdMode ? 'mdi-eye-off' : 'mdi-eye'"
                         @click:append="() => (pwdMode = !pwdMode)"
                         :type="pwdMode ? 'password' : 'text'"
-                        hint='At least 8 characters long.',
+                        hint='The ADMIN_PASSWORD saved for this wiki in Tofu.',
                         persistent-hint
                       )
                     v-flex(xs6)
@@ -66,22 +76,15 @@
                   persistent-hint
                   @keyup.enter='install'
                 )
-                v-divider.mb-4
-                .overline.pl-3.mb-3 Telemetry
-                v-switch.ml-3(
-                  inset
-                  color='primary',
-                  v-model='conf.telemetry',
-                  label='Allow Telemetry',
-                  persistent-hint,
-                  hint='Help Wiki.js developers improve this app with anonymized telemetry.'
-                )
-                a.pl-3(style='font-size: 12px; letter-spacing: initial;', href='https://docs.requarks.io/telemetry', target='_blank') Learn more
+                //- Tofu (2026-10-25): no telemetry question; telemetry stays off (server/setup.js).
               v-divider.mt-2
-              v-card-actions
+              v-card-actions(v-if='!lock')
                 v-btn(color='primary', @click='install', :disabled='loading', x-large, depressed, block)
                   v-icon(left) mdi-check
                   span Install
+              //- Tofu (2026-10-25): this copy's own source, which the AGPL offers to everyone who uses it.
+              .text-center.caption.pb-4.pt-2
+                tofu-source-link(:href-override='sourceUrl')
 
     v-dialog(v-model='loading', width='450', persistent)
       v-card(color='primary', dark).radius-7
@@ -105,17 +108,30 @@ import _ from 'lodash'
 import validate from 'validate.js'
 import { BreedingRhombusSpinner } from 'epic-spinners'
 import confetti from 'canvas-confetti'
+import TofuSourceLink from './common/tofu-source-link.vue'
+
+// Tofu (2026-10-25): modified by Tofu for its app gallery: the setup waits for its owner's ADMIN_PASSWORD (lock),
+// asks nothing about telemetry, suggests this page's own address as the site URL, and links this copy's own source.
 
 /* global siteConfig */
 
 export default {
   components: {
-    BreedingRhombusSpinner
+    BreedingRhombusSpinner,
+    TofuSourceLink
   },
   props: {
     wikiVersion: {
       type: String,
       required: true
+    },
+    lock: {
+      type: String,
+      default: ''
+    },
+    sourceUrl: {
+      type: String,
+      default: ''
     }
   },
   data() {
@@ -128,8 +144,8 @@ export default {
         adminEmail: '',
         adminPassword: '',
         adminPasswordConfirm: '',
-        siteUrl: 'https://wiki.yourdomain.com',
-        telemetry: true
+        siteUrl: window.location.origin,
+        telemetry: false
       },
       pwdMode: true,
       pwdConfirmMode: true,
@@ -138,7 +154,9 @@ export default {
   },
   mounted() {
     _.delay(() => {
-      this.$refs.adminEmailInput.focus()
+      if (this.$refs.adminEmailInput) {
+        this.$refs.adminEmailInput.focus()
+      }
     }, 500)
     this.isDevMode = siteConfig.devMode === true
   },
