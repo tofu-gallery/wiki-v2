@@ -16,12 +16,15 @@ const closeToDataApi = require('../db/tofu-data-api')
 /* global WIKI */
 
 /**
- * Tofu (2026-10-25): node-postgres lets a URL's `sslmode` override its own `ssl` option, and treats `require` as full
- * certificate verification, which fails against a managed database's pooler (SELF_SIGNED_CERT_IN_CHAIN). When the URL
- * names an `sslmode`, it is taken out and TLS is set here, as libpq means it: `disable` is off, `verify-ca` and
- * `verify-full` verify the server's certificate, and every other mode encrypts without verifying it. DB_SSL_CA, when
- * set, still verifies against that certificate (below). Host, port, user, password, database and any other parameter
- * stay in the URL, which pg parses itself; a URL without `sslmode` reaches pg as it did upstream.
+ * Tofu (2026-10-25): upstream hands DATABASE_URL to knex as it is, and knex 0.21's URL parser (pg-connection-string
+ * 2.3.0) does not know `sslmode`, so `?sslmode=require` connected without TLS, and a server that requires TLS refused
+ * it. Handing the URL to pg itself would not work either: node-postgres lets a URL's `sslmode` override its own `ssl`
+ * option, and treats `require` as full certificate verification, which fails against a managed database's pooler
+ * (SELF_SIGNED_CERT_IN_CHAIN). So when the URL names an `sslmode`, it is taken out and TLS is set here, as libpq means
+ * it: `disable` is off, `verify-ca` and `verify-full` verify the server's certificate, and every other mode encrypts
+ * without verifying it. DB_SSL_CA, when set, still verifies against that certificate (below). Host, port, user,
+ * password, database and any other parameter stay in the URL, which pg parses itself; a URL without `sslmode` reaches
+ * knex as it did upstream.
  */
 function tofuDatabaseUrl (databaseUrl) {
   let url
