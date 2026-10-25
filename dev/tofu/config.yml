@@ -1,0 +1,30 @@
+# Tofu (2026-10-25): this file is Tofu's addition; it is not part of upstream Wiki.js.
+# The configuration Tofu's image runs with (the root Dockerfile copies it to /wiki/config.yml). It is upstream's
+# dev/build/config.yml with defaults, so a copy starts from the two settings Tofu gives every container app it runs
+# with a database: PORT and DATABASE_URL (server/core/db.js reads DATABASE_URL ahead of the db section below).
+# Any value can still be changed with the setting it names, $(NAME:default).
+port: $(PORT:3000)
+bindIP: 0.0.0.0
+db:
+  type: $(DB_TYPE:postgres)
+  host: '$(DB_HOST:localhost)'
+  port: $(DB_PORT:5432)
+  user: '$(DB_USER)'
+  pass: '$(DB_PASS)'
+  db: $(DB_NAME:wiki)
+  storage: $(DB_FILEPATH)
+  ssl: $(DB_SSL:false)
+ssl:
+  enabled: $(SSL_ACTIVE:false)
+  port: 3443
+  provider: letsencrypt
+  domain: $(LETSENCRYPT_DOMAIN)
+  subscriberEmail: $(LETSENCRYPT_EMAIL)
+logLevel: $(LOG_LEVEL:info)
+logFormat: $(LOG_FORMAT:default)
+# Offline, Wiki.js's own mode for a server that does not reach upstream's graph.requarks.io: no telemetry, no daily
+# update check and no locale download. Its English interface comes from data/sideload instead (dev/tofu/sideload,
+# which the root Dockerfile copies there). WIKI_OFFLINE=false turns them back on, which Administration > Locale
+# needs to download another language.
+offline: $(WIKI_OFFLINE:true)
+ha: $(HA_ACTIVE:false)

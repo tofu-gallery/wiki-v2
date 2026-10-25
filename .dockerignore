@@ -1,0 +1,9 @@
+# Tofu (2026-10-25): this file is Tofu's addition; it is not part of upstream Wiki.js.
+# What the root Dockerfile's build never needs: dependencies and build output made outside it, local data and
+# configuration, and version-control metadata.
+.git
+node_modules
+assets
+data
+config.yml
+*.log
