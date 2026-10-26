@@ -70,6 +70,87 @@ module.exports = () => {
   }
 
   // ----------------------------------------
+  // Tofu (2026-10-26): more than one server
+  // ----------------------------------------
+  // Tofu's hosting can run several servers of the same wiki, which know nothing of each other: each starts in setup
+  // mode on a new database, and only the one that finishes the setup leaves it. Another one would show the setup page
+  // again (the setup page sends the owner on to /login), and a second setup there would overwrite the wiki's settings,
+  // fail (on PostgreSQL the users the first one made keep `locales` from being emptied), and then empty `settings`, so
+  // every server would start in setup mode, where every setup fails the same way. So a setup runs
+  // under Wiki.js's schema lock (server/db/tofu-data-api.js) and only on a wiki that has no settings yet, and a server
+  // in setup mode that finds the settings another server saved starts as the wiki itself, as the server that finished
+  // the setup does (below, at "Finalize").
+
+  const tofuDataApi = require('./db/tofu-data-api')
+  // finishing: this server's own setup is writing the wiki; started: this server is leaving setup mode for another's.
+  const tofuSwitch = { checkedAt: 0, finishing: false, started: false }
+
+  async function settingsSaved () {
+    try {
+      return Boolean(await WIKI.models.settings.getConfig())
+    } catch (err) {
+      return false
+    }
+  }
+
+  // At most every 2 seconds, and under the lock, so that a setup another server is still writing is waited for and
+  // its half-written wiki is never started here.
+  async function setupDoneElsewhere () {
+    if (tofuSwitch.finishing || tofuSwitch.started) {
+      return true
+    }
+    if (Date.now() - tofuSwitch.checkedAt < 2000) {
+      return false
+    }
+    tofuSwitch.checkedAt = Date.now()
+    let trx = null
+    try {
+      trx = await WIKI.models.knex.transaction()
+      await tofuDataApi.lockSchema(trx)
+      return await settingsSaved()
+    } catch (err) {
+      return false
+    } finally {
+      if (trx) {
+        try {
+          await trx.commit()
+        } catch (err) {}
+      }
+    }
+  }
+
+  function startAsWiki () {
+    if (tofuSwitch.finishing || tofuSwitch.started) {
+      return
+    }
+    tofuSwitch.started = true
+    WIKI.logger.info('Another server of this wiki finished its setup. Stopping Setup...')
+    WIKI.server.destroy(() => {
+      _.delay(async () => {
+        try {
+          await WIKI.configSvc.loadFromDb()
+          WIKI.config.setup = false
+          WIKI.logger.info('Setup stopped. Starting Wiki.js...')
+          WIKI.kernel.bootMaster()
+        } catch (err) {
+          WIKI.logger.error(`Could not start Wiki.js after another server's setup: ${err.message}`)
+          process.exit(1)
+        }
+      }, 1000)
+    })
+  }
+
+  function sendStarting (res, status, json) {
+    res.set('Retry-After', '5')
+    if (json) {
+      res.status(status).json({ ok: false, error: 'This wiki has just been set up. Reload the page in a few seconds and sign in with the administrator’s email address and password.' })
+    } else {
+      res.status(status).send('<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="5"><title>Wiki.js</title></head><body style="font-family:sans-serif;padding:2em">This wiki has just been set up. It opens in a few seconds.</body></html>')
+    }
+    res.on('finish', startAsWiki)
+  }
+
+  // ----------------------------------------
   // Define Express App
   // ----------------------------------------
 
@@ -112,6 +193,10 @@ module.exports = () => {
   // ----------------------------------------
 
   app.get('*', async (req, res) => {
+    // Tofu (2026-10-26): another server finished the setup (above).
+    if (await setupDoneElsewhere()) {
+      return sendStarting(res, 503, false)
+    }
     let packageObj = await fs.readJson(path.join(WIKI.ROOTPATH, 'package.json'))
     // Tofu (2026-10-25): whether the setup waits for ADMIN_PASSWORD, and this copy's source (above).
     res.render('setup', { packageObj, setupLock, sourceUrl })
@@ -126,6 +211,31 @@ module.exports = () => {
     if (refusal) {
       return res.status(403).json({ ok: false, error: refusal })
     }
+    // Tofu (2026-10-26): one setup at a time, under Wiki.js's schema lock, and none on a wiki that has its settings
+    // (above). The lock is held by a transaction of its own until the setup has written everything; the setup's own
+    // statements run on Wiki.js's other connections, as upstream's do.
+    let setupLockTrx = null
+    const releaseSetupLock = async () => {
+      if (setupLockTrx) {
+        const trx = setupLockTrx
+        setupLockTrx = null
+        try {
+          await trx.commit()
+        } catch (err) {}
+      }
+    }
+    try {
+      setupLockTrx = await WIKI.models.knex.transaction()
+      await tofuDataApi.lockSchema(setupLockTrx)
+    } catch (err) {
+      await releaseSetupLock()
+      return res.status(503).json({ ok: false, error: `The setup could not start: ${err.message}. Try again in a minute.` })
+    }
+    if (tofuSwitch.finishing || tofuSwitch.started || await settingsSaved()) {
+      await releaseSetupLock()
+      return sendStarting(res, 409, true)
+    }
+    tofuSwitch.finishing = true
     try {
       // Set config
       _.set(WIKI.config, 'auth', {
@@ -399,6 +509,8 @@ module.exports = () => {
       })
 
       WIKI.logger.info('Setup is complete!')
+      // Tofu (2026-10-26): everything is written: another setup may look now, and it finds the settings (above).
+      await releaseSetupLock()
       // WIKI.telemetry.sendEvent('setup', 'install-completed')
       res.json({
         ok: true,
@@ -423,6 +535,9 @@ module.exports = () => {
       try {
         await WIKI.models.knex('settings').truncate()
       } catch (err) {}
+      // Tofu (2026-10-26): the failed setup is undone (above); the next one may start.
+      tofuSwitch.finishing = false
+      await releaseSetupLock()
       WIKI.telemetry.sendError(err)
       res.json({ ok: false, error: err.message })
     }
