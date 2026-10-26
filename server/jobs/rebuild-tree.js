@@ -54,18 +54,32 @@ module.exports = async (pageId) => {
       }
     }
 
-    await WIKI.models.knex.table('pageTree').truncate()
-    if (tree.length > 0) {
-      // -> Save in chunks, because of per query max parameters (35k Postgres, 2k MSSQL, 1k for SQLite)
-      if ((WIKI.config.db.type !== 'sqlite')) {
-        for (const chunk of _.chunk(tree, 100)) {
-          await WIKI.models.knex.table('pageTree').insert(chunk)
-        }
-      } else {
-        for (const chunk of _.chunk(tree, 60)) {
-          await WIKI.models.knex.table('pageTree').insert(chunk)
+    // Tofu (2026-10-26): modified by Tofu for its app gallery: on PostgreSQL the tree is replaced in one transaction that
+    // first takes the page tree's advisory lock (server/db/tofu-data-api.js). Every start runs this job, so several
+    // servers starting at once (as Tofu's hosting does) replaced it at the same moment, and all but one failed on rows
+    // another had just inserted (pageTree_pkey). Upstream ran the same statements on WIKI.models.knex, one at a time.
+    const replaceTree = async (knex) => {
+      await knex.table('pageTree').truncate()
+      if (tree.length > 0) {
+        // -> Save in chunks, because of per query max parameters (35k Postgres, 2k MSSQL, 1k for SQLite)
+        if ((WIKI.config.db.type !== 'sqlite')) {
+          for (const chunk of _.chunk(tree, 100)) {
+            await knex.table('pageTree').insert(chunk)
+          }
+        } else {
+          for (const chunk of _.chunk(tree, 60)) {
+            await knex.table('pageTree').insert(chunk)
+          }
         }
       }
+    }
+    if (WIKI.config.db.type === 'postgres') {
+      await WIKI.models.knex.transaction(async trx => {
+        await require('../db/tofu-data-api').lockPageTree(trx)
+        await replaceTree(trx)
+      })
+    } else {
+      await replaceTree(WIKI.models.knex)
     }
 
     await WIKI.models.knex.destroy()
