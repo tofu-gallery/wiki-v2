@@ -22,37 +22,44 @@ module.exports = {
   async init() {
     WIKI.logger.info(`(SEARCH/POSTGRES) Initializing...`)
 
-    // -> Ensure pg_trgm extension is available (required for similarity search)
-    await WIKI.models.knex.raw('CREATE EXTENSION IF NOT EXISTS pg_trgm')
+    // Tofu (2026-10-26): modified by Tofu for its app gallery: the extension and the two index tables are made in one
+    // transaction that first takes Wiki.js's schema lock, so several servers starting at once make them once, and they
+    // get row-level security on Supabase in the same step, as Wiki.js's other tables do at start
+    // (server/db/tofu-data-api.js). Upstream ran the same statements on WIKI.models.knex, one at a time.
+    const tofuDataApi = require('../../../db/tofu-data-api')
+    await WIKI.models.knex.transaction(async knex => {
+      await tofuDataApi.lockSchema(knex)
 
-    // -> Create Search Index
-    const indexExists = await WIKI.models.knex.schema.hasTable('pagesVector')
-    if (!indexExists) {
-      WIKI.logger.info(`(SEARCH/POSTGRES) Creating Pages Vector table...`)
-      await WIKI.models.knex.schema.createTable('pagesVector', table => {
-        table.increments()
-        table.string('path')
-        table.string('locale')
-        table.string('title')
-        table.string('description')
-        table.specificType('tokens', 'TSVECTOR')
-        table.text('content')
-      })
-    }
-    // -> Create Words Index
-    const wordsExists = await WIKI.models.knex.schema.hasTable('pagesWords')
-    if (!wordsExists) {
-      WIKI.logger.info(`(SEARCH/POSTGRES) Creating Words Suggestion Index...`)
-      await WIKI.models.knex.raw(`
-        CREATE TABLE "pagesWords" AS SELECT word FROM ts_stat(
-          'SELECT to_tsvector(''simple'', "title") || to_tsvector(''simple'', "description") || to_tsvector(''simple'', "content") FROM "pagesVector"'
-        )`)
-      await WIKI.models.knex.raw(`CREATE INDEX "pageWords_idx" ON "pagesWords" USING GIN (word gin_trgm_ops)`)
-    }
+      // -> Ensure pg_trgm extension is available (required for similarity search)
+      await knex.raw('CREATE EXTENSION IF NOT EXISTS pg_trgm')
 
-    // Tofu (2026-10-25): modified by Tofu for its app gallery: the two index tables get row-level security on
-    // Supabase as soon as they exist, as Wiki.js's other tables do at start (server/db/tofu-data-api.js).
-    await require('../../../db/tofu-data-api')(WIKI.models.knex)
+      // -> Create Search Index
+      const indexExists = await knex.schema.hasTable('pagesVector')
+      if (!indexExists) {
+        WIKI.logger.info(`(SEARCH/POSTGRES) Creating Pages Vector table...`)
+        await knex.schema.createTable('pagesVector', table => {
+          table.increments()
+          table.string('path')
+          table.string('locale')
+          table.string('title')
+          table.string('description')
+          table.specificType('tokens', 'TSVECTOR')
+          table.text('content')
+        })
+      }
+      // -> Create Words Index
+      const wordsExists = await knex.schema.hasTable('pagesWords')
+      if (!wordsExists) {
+        WIKI.logger.info(`(SEARCH/POSTGRES) Creating Words Suggestion Index...`)
+        await knex.raw(`
+          CREATE TABLE "pagesWords" AS SELECT word FROM ts_stat(
+            'SELECT to_tsvector(''simple'', "title") || to_tsvector(''simple'', "description") || to_tsvector(''simple'', "content") FROM "pagesVector"'
+          )`)
+        await knex.raw(`CREATE INDEX "pageWords_idx" ON "pagesWords" USING GIN (word gin_trgm_ops)`)
+      }
+
+      await tofuDataApi.closeToDataApi(knex)
+    })
 
     WIKI.logger.info(`(SEARCH/POSTGRES) Initialization completed.`)
   },
