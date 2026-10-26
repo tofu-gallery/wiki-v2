@@ -7,11 +7,13 @@ const fs = require('fs')
 const Objection = require('objection')
 
 // Tofu (2026-10-25): modified by Tofu for its app gallery: a DATABASE_URL's sslmode keeps libpq's meaning
-// (tofuDatabaseUrl), and Wiki.js's tables are closed to Supabase's Data API after its migrations (closeToDataApi).
+// (tofuDatabaseUrl), and Wiki.js's tables are closed to Supabase's Data API after its migrations.
+// Tofu (2026-10-26): on PostgreSQL, a start's schema work runs as one transaction under one advisory lock
+// (tofuSchemaStep), so several servers starting at once on an empty database make the schema once.
 
 const migrationSource = require('../db/migrator-source')
 const migrateFromBeta = require('../db/beta')
-const closeToDataApi = require('../db/tofu-data-api')
+const tofuDataApi = require('../db/tofu-data-api')
 
 /* global WIKI */
 
@@ -248,18 +250,43 @@ module.exports = {
       async migrateFromBeta () {
         return migrateFromBeta.migrate(self.knex)
       },
-      // -> Tofu (2026-10-25): row-level security on Wiki.js's own tables for Supabase's Data API
-      async closeToDataApi () {
-        return closeToDataApi(self.knex)
+      // -> Tofu (2026-10-26): on PostgreSQL, the start's whole schema step in ONE transaction, which first takes
+      // Wiki.js's schema lock (server/db/tofu-data-api.js): the beta fix-up and the migrations above, then the tables
+      // of the server's own stores and row-level security for Supabase's Data API. Several servers that start at once
+      // (Tofu's hosting starts more than one when a new version gets its first requests) then wait for each other: the
+      // first makes the schema, the others find it made. DDL is transactional in PostgreSQL, so a start that fails
+      // leaves nothing half made. A start that still meets an object another start made tries the step once more.
+      async tofuSchemaStep () {
+        const step = () => self.knex.transaction(async trx => {
+          await tofuDataApi.lockSchema(trx)
+          await migrateFromBeta.migrate(trx)
+          await trx.migrate.latest({
+            tableName: 'migrations',
+            migrationSource
+          })
+          await tofuDataApi.afterMigrations(trx)
+        })
+        try {
+          await step()
+        } catch (err) {
+          if (!tofuDataApi.isDuplicate(err)) {
+            throw err
+          }
+          WIKI.logger.warn(`Database schema step met another start's work (${err.message}), trying it once more...`)
+          await step()
+        }
       }
     }
 
-    let initTasksQueue = (WIKI.IS_MASTER) ? [
+    // Tofu (2026-10-26): on PostgreSQL, the beta fix-up and the migrations run inside tofuSchemaStep (above).
+    let initTasksQueue = (WIKI.IS_MASTER) ? ((WIKI.config.db.type === 'postgres') ? [
+      initTasks.connect,
+      initTasks.tofuSchemaStep
+    ] : [
       initTasks.connect,
       initTasks.migrateFromBeta,
-      initTasks.syncSchemas,
-      initTasks.closeToDataApi
-    ] : [
+      initTasks.syncSchemas
+    ]) : [
       () => { return Promise.resolve() }
     ]
 
