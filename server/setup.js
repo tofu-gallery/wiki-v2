@@ -33,9 +33,10 @@ module.exports = () => {
   // the administrator. Here it only finishes with the password the owner saved as the hidden value ADMIN_PASSWORD,
   // which becomes the administrator's password. Without one, or with one shorter than 8 characters, the page only says
   // what the owner has to do. Tofu (2026-10-27): wrong passwords are counted for each client address, so that a
-  // stranger's guesses cannot keep the owner out: ten in a row from one address close the setup for that address for
-  // 15 minutes, the owner's password from it forgets its count, and no other address is refused because of it
-  // (server/helpers/tofu-setup-guard.js, which also says how the address is read).
+  // stranger's guesses from another network cannot keep the owner out: ten in a row from one address close the setup
+  // for that address for 15 minutes, the owner's password from it forgets its count, and no other address (for IPv6,
+  // no other /64) is refused because of it (server/helpers/tofu-setup-guard.js, which also says how the address is
+  // read and what the count does not stop).
 
   const ownerPassword = process.env.ADMIN_PASSWORD || ''
   const setupLock = ownerPassword.length === 0 ? 'missing' : (ownerPassword.length < 8 ? 'short' : '')

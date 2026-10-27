@@ -4,11 +4,15 @@ const net = require('net')
 
 // The setup's count of wrong ADMIN_PASSWORDs (server/setup.js), kept for each client address, in memory: ten wrong
 // passwords in a row from one address close the setup for that address for 15 minutes, and the owner's password from
-// it forgets its count. Another address is never refused because of it, so a stranger's guesses cannot keep the owner
-// out.
+// it forgets its count. An IPv6 address shares its count with the rest of its /64 (addressKey), and no address outside
+// a count is refused because of it: a stranger's guesses from another network cannot keep the owner out, but someone
+// who shares the owner's public IPv4 address (the same home or office network, or a provider's shared address) or IPv6
+// /64 can, 15 minutes at a time.
 const WRONG_IN_A_ROW = 10
 const CLOSED_FOR = 15 * 60 * 1000
-// At most this many addresses are kept; past it, the one counted longest ago is forgotten.
+// At most this many addresses are kept; past it, the one counted longest ago is forgotten. So the count stops one
+// guesser, not a crowd: someone guessing from more addresses than this in turn (or more IPv6 /64s, of which one /48
+// holds 65,536) has each of them forgotten before its tenth wrong password, and none of them is ever closed.
 const MAX_ADDRESSES = 1000
 
 /**
@@ -30,8 +34,9 @@ function ipv6Groups (address) {
 
 /**
  * What an address is counted as: an IPv4 address as itself, also when it is written as IPv6 (`::ffff:a.b.c.d`), and an
- * IPv6 address as its /64, the network one client is usually given, so that one network cannot make itself new
- * addresses. Null for anything that is not an IP address.
+ * IPv6 address as its /64, the network one client is usually given, so that one /64 cannot make itself new addresses
+ * (a larger network, such as a /56 or a /48, holds many /64s, each counted on its own). Null for anything that is not
+ * an IP address.
  */
 function addressKey (text) {
   const address = String(text || '').trim()
@@ -52,7 +57,9 @@ function addressKey (text) {
  * The address a setup request came from. The setup's Express app trusts no proxy, so its req.ip is the nearest proxy's.
  * On Tofu every request reaches the app from a local proxy (127.0.0.1), and the hosting writes X-Forwarded-For itself,
  * with the client's own address as its only entry, whatever the client sent in it (measured on 2026-10-27). So the
- * address is the last entry of X-Forwarded-For, the one the nearest proxy wrote, else the connection's own.
+ * address is the last entry of X-Forwarded-For, the one the nearest proxy wrote, when it is an IP address; else the
+ * connection's own address (on Tofu the local proxy's, which every such request would share); else 'unknown', one
+ * count for every request with neither.
  */
 function clientAddress (req) {
   const forwarded = String(req.headers['x-forwarded-for'] || '').split(',').pop()
