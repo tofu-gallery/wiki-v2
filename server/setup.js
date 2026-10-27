@@ -32,34 +32,35 @@ module.exports = () => {
   // On Tofu a new copy is online before its owner first opens it, and upstream's setup makes whoever finishes it first
   // the administrator. Here it only finishes with the password the owner saved as the hidden value ADMIN_PASSWORD,
   // which becomes the administrator's password. Without one, or with one shorter than 8 characters, the page only says
-  // what the owner has to do. Ten wrong passwords in a row close the setup for 15 minutes.
+  // what the owner has to do. Tofu (2026-10-27): wrong passwords are counted for each client address, so that a
+  // stranger's guesses cannot keep the owner out: ten in a row from one address close the setup for that address for
+  // 15 minutes, the owner's password from it forgets its count, and no other address is refused because of it
+  // (server/helpers/tofu-setup-guard.js, which also says how the address is read).
 
   const ownerPassword = process.env.ADMIN_PASSWORD || ''
   const setupLock = ownerPassword.length === 0 ? 'missing' : (ownerPassword.length < 8 ? 'short' : '')
   const sourceUrl = process.env.SOURCE_URL || 'https://github.com/tofu-gallery/wiki-v2/tree/tofu'
-  const guard = { failures: 0, closedUntil: 0 }
+  const tofuSetupGuard = require('./helpers/tofu-setup-guard')
+  const guard = tofuSetupGuard.createGuard()
   const sha256 = value => crypto.createHash('sha256').update(value, 'utf8').digest()
 
-  async function ownerRefusal (body) {
+  async function ownerRefusal (req) {
     if (setupLock === 'missing') {
       return 'This wiki is waiting for its owner. To finish setting it up, its owner saves a password as ADMIN_PASSWORD on the app’s Keys & settings page in Tofu, with Hide this value after saving on, and deploys the app again.'
     }
     if (setupLock === 'short') {
       return 'ADMIN_PASSWORD has to be at least 8 characters long. The owner saves a longer one on the app’s Keys & settings page in Tofu and deploys the app again.'
     }
-    if (Date.now() < guard.closedUntil) {
+    const address = tofuSetupGuard.clientAddress(req)
+    if (guard.closed(address)) {
       return 'Too many wrong passwords. Try again in 15 minutes.'
     }
-    const given = _.get(body, 'adminPassword')
+    const given = _.get(req.body, 'adminPassword')
     if (_.isString(given) && crypto.timingSafeEqual(sha256(given), sha256(ownerPassword))) {
-      guard.failures = 0
+      guard.right(address)
       return null
     }
-    guard.failures++
-    if (guard.failures >= 10) {
-      guard.failures = 0
-      guard.closedUntil = Date.now() + 15 * 60 * 1000
-    }
+    guard.wrong(address)
     WIKI.logger.warn('Setup refused: the password given is not this wiki’s ADMIN_PASSWORD.')
     await new Promise(resolve => setTimeout(resolve, 1000))
     return 'That is not the password saved as ADMIN_PASSWORD for this wiki. Use the one its owner saved on the app’s Keys & settings page in Tofu.'
@@ -207,7 +208,7 @@ module.exports = () => {
    */
   app.post('/finalize', async (req, res) => {
     // Tofu (2026-10-25): only with the owner's ADMIN_PASSWORD (above).
-    const refusal = await ownerRefusal(req.body)
+    const refusal = await ownerRefusal(req)
     if (refusal) {
       return res.status(403).json({ ok: false, error: refusal })
     }
